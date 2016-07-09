@@ -143,6 +143,44 @@ func Class(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+func translateGymClassName(className string) string {
+	switch {
+	case strings.Contains(strings.ToUpper(className), "RPM"):
+		return "RPM"
+	case strings.Contains(strings.ToUpper(className), "GRIT STRENGTH"):
+		return "GRIT STRENGTH"
+	case strings.Contains(strings.ToUpper(className), "GRIT CARDIO"):
+		return "GRIT CARDIO"
+	case strings.Contains(strings.ToUpper(className), "BODYPUMP"):
+		return "BODYPUMP"
+	case strings.Contains(strings.ToUpper(className), "BODYBALANCE"):
+		return "BODYBALANCE"
+	case strings.Contains(strings.ToUpper(className), "BODYATTACK"):
+		return "BODYATTACK"
+	case strings.Contains(strings.ToUpper(className), "CXWORX"):
+		return "CXWORX"
+	case strings.Contains(strings.ToUpper(className), "SH'BAM"):
+		return "SH'BAM"
+	case strings.Contains(strings.ToUpper(className), "BODYCOMBAT"):
+		return "BODYCOMBAT"
+	case strings.Contains(strings.ToUpper(className), "YOGA"):
+		return "YOGA"
+	case strings.Contains(strings.ToUpper(className), "GRIT PLYO"):
+		return "GRIT PLYO"
+	case strings.Contains(strings.ToUpper(className), "BODYJAM"):
+		return "BODYJAM"
+	case strings.Contains(strings.ToUpper(className), "SPRINT"):
+		return "SPRINT"
+	case strings.Contains(strings.ToUpper(className), "BODYVIVE"):
+		return "BODYVIVE"
+	case strings.Contains(strings.ToUpper(className), "BODYSTEP"):
+		return "BODYSTEP"
+	case strings.Contains(strings.ToUpper(className), "BORN TO MOVE"):
+		return "BORN TO MOVE"
+	}
+	return className
+}
+
 func isDBCurrent() bool {
 	var lastGymClassString string
 	err := db.QueryRow("SELECT MAX(start_datetime) from timetable").Scan(&lastGymClassString)
@@ -197,6 +235,7 @@ func getClassesFromDB(query GymQuery) ([]GymClass, error) {
 			log.Fatal(err)
 			return nil, errors.New("No records found")
 		}
+		result.Name = translateGymClassName(result.Name)
 		results = append(results, result)
 	}
 
@@ -240,7 +279,7 @@ func parseClassesFromICS(query GymQuery) ([]GymClass, error) {
 		for _, event := range c.GetEvents() {
 			foundClass = GymClass{
 				Gym:           gym,
-				Name:          event.GetSummary(),
+				Name:          translateGymClassName(event.GetSummary()),
 				Location:      event.GetLocation(),
 				StartDateTime: event.GetStart(),
 				EndDateTime:   event.GetEnd()}
