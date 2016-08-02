@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-
 	"github.com/PuloV/ics-golang"
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/net/context"
+	"googlemaps.github.io/maps"
+	"strconv"
+	"strings"
 	//	"html"
 	"log"
 	"net/http"
 	"sort"
 	"time"
 )
+
+// TODO: Persist LatLong to dB?
 
 var gymIds = map[string]string{
 	"city":      "96382586-e31c-df11-9eaa-0050568522bb",
@@ -25,12 +28,20 @@ var gymIds = map[string]string{
 	"newmarket": "b6aa431c-ce1a-e511-a02f-0050568522bb",
 }
 
+var gymLocations = map[string]string{
+	"city":      "-36.8483137,174.6877862",
+	"britomart": "-36.845961,174.759604",
+	"takapuna":  "-36.787821,174.7679373",
+	"newmarket": "-36.8662563,174.7685271",
+}
+
 type GymClass struct {
 	Gym           string    `json:"gym" db:"gym"`
 	Name          string    `json:"name" db:"class"`
 	Location      string    `json:"location" db:"location"`
 	StartDateTime time.Time `json:"startdatetime" db:"start_datetime"`
 	EndDateTime   time.Time `json:"enddatetime" db:"end_datetime"`
+	LatLong       string    `json:"latlong"`
 }
 
 type GymQuery struct {
@@ -50,7 +61,7 @@ func (a ByStartDateTime) Less(i, j int) bool { return a[i].StartDateTime.Before(
 
 var db *sql.DB
 
-func main() {
+func initialiseDatabase() {
 
 	// Try open the DB
 	var err error
@@ -59,19 +70,96 @@ func main() {
 		log.Fatal("Failed to open database")
 	}
 
+	// Create classes table
+	createSQL := `
+        CREATE TABLE IF NOT EXISTS timetable (
+           gym VARCHAR(9) NOT NULL,
+           class VARCHAR(45) NOT NULL,
+           location VARCHAR(27) NOT NULL,
+           start_datetime DATETIME NOT NULL,
+           end_datetime DATETIME NOT NULL);
+	`
+	_, err = db.Exec(createSQL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create index
+	insertSQL := `
+	CREATE UNIQUE INDEX IF NOT EXISTS unique_class ON timetable(gym, location, start_datetime);
+`
+	_, err = db.Exec(insertSQL)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func main() {
+
+	initialiseDatabase()
+
 	// Create a new router for requests
 	router := mux.NewRouter().StrictSlash(true)
 
 	// Register a router for the class endpoint
-	router.HandleFunc("/", Class)
+	router.HandleFunc("/class/", Class)
+
+	// Register a router for the class endpoint
+	router.HandleFunc("/traveltime/", TravelTime)
 
 	// Start the http server
 	log.Fatal(http.ListenAndServe(":9000", router))
 }
 
-// /?class="city"&name="cx"&after=2015-07-01T11:20&before=2015-07-01T13:30&limit=10
-func Class(w http.ResponseWriter, r *http.Request) {
+// /traveltime/origin=&destination=?
+func TravelTime(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
+	c, err := maps.NewClient(maps.WithAPIKey("AIzaSyDxQNzW3Ub5U4UQl0KoJWXx368Qg3lGf3A"))
+	// Initialise Google Maps API
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "An unknown error occurred")
+		return
+	}
+
+	var params = r.URL.Query()
+	origin := params.Get("origin")
+	if origin == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Must supply a 'origin' parameter")
+		return
+	}
+
+	destination := params.Get("destination")
+	if destination == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Must supply a 'destination' parameter")
+		return
+	}
+
+	req := &maps.DirectionsRequest{
+		Origin:      origin,
+		Destination: destination,
+	}
+
+	resp, _, err := c.Directions(context.Background(), req)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "An unknown error occurred")
+	}
+	//
+	jsonResponse := resp[0].Legs
+	finalDuration := jsonResponse[len(jsonResponse)-1].Duration
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "%.0f", finalDuration.Minutes())
+	return
+}
+
+// /class/gym="city"&name="cx"&after=2015-07-01T11:20&before=2015-07-01T13:30&limit=10
+func Class(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -125,13 +213,13 @@ func Class(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Database is up to date, so getting info from there")
 		foundClasses, err = getClassesFromDB(foundQuery)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Failed to get classes from the database %s", err)
 		}
 	} else {
 		log.Printf("Database is stale, parsing ICS files")
 		foundClasses, err = parseClassesFromICS(foundQuery)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Failed to parse ICS files %s", err)
 		}
 	}
 
@@ -186,16 +274,16 @@ func isDBCurrent() bool {
 	err := db.QueryRow("SELECT MAX(start_datetime) from timetable").Scan(&lastGymClassString)
 	switch {
 	case err == sql.ErrNoRows:
-		log.Printf("Couldn't find any rows")
+		log.Printf("Couldn't find any rows getting newest class from db")
 		return false
 	case err != nil:
-		log.Fatal(err)
+		log.Printf("Unknown error occured when getting newest class from db: %s", err)
 		return false
 	default:
-		fmt.Println(lastGymClassString)
 		lastGymClass, err := time.Parse("2006-01-02 15:04:05Z07:00", lastGymClassString)
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Malformed datetime returned from db when trying to find latest class: %s", err)
+			return false
 		}
 		return time.Now().AddDate(0, 0, 6).Before(lastGymClass)
 	}
@@ -232,13 +320,12 @@ func getClassesFromDB(query GymQuery) ([]GymClass, error) {
 			&result.EndDateTime,
 		)
 		if err != nil {
-			log.Fatal(err)
 			return nil, errors.New("No records found")
 		}
 		result.Name = translateGymClassName(result.Name)
+		result.LatLong = gymLocations[result.Gym]
 		results = append(results, result)
 	}
-
 	sort.Sort(ByStartDateTime(results))
 	return results, nil
 }
@@ -251,6 +338,7 @@ func parseClassesFromICS(query GymQuery) ([]GymClass, error) {
 	parser := ics.New()
 	inputChan := parser.GetInputChan()
 
+	// Create the URL for the ICS based on the gym
 	if query.Gym == "" {
 		for _, v := range gymIds {
 			inputChan <- baseURL + v
@@ -262,7 +350,7 @@ func parseClassesFromICS(query GymQuery) ([]GymClass, error) {
 
 	cal, err := parser.GetCalendars()
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	var foundClass GymClass
 	for _, c := range cal {
@@ -276,13 +364,22 @@ func parseClassesFromICS(query GymQuery) ([]GymClass, error) {
 			}
 		}
 
+		loc, _ := time.LoadLocation("Pacific/Auckland")
 		for _, event := range c.GetEvents() {
+			// TODO: Find a nicer way of adding the timezone
+			start := event.GetStart()
+			end := event.GetEnd()
+			startDateTime := time.Date(start.Year(), start.Month(), start.Day(), start.Hour(), start.Minute(), start.Second(), 0, loc)
+			endDateTime := time.Date(end.Year(), end.Month(), end.Day(), end.Hour(), end.Minute(), end.Second(), 0, loc)
+
 			foundClass = GymClass{
 				Gym:           gym,
 				Name:          translateGymClassName(event.GetSummary()),
 				Location:      event.GetLocation(),
-				StartDateTime: event.GetStart(),
-				EndDateTime:   event.GetEnd()}
+				StartDateTime: startDateTime,
+				EndDateTime:   endDateTime,
+				LatLong:       gymLocations[gym],
+			}
 
 			persistClassToDB(foundClass)
 			// Check the times and name
@@ -298,43 +395,16 @@ func parseClassesFromICS(query GymQuery) ([]GymClass, error) {
 	return foundClasses, nil
 }
 
-func persistClassToDB(class GymClass) {
-	// Try open the DB
-
-	// Create table
-	createSQL := `
-        CREATE TABLE IF NOT EXISTS timetable (
-           gym VARCHAR(9) NOT NULL,
-           class VARCHAR(45) NOT NULL,
-           location VARCHAR(27) NOT NULL,
-           start_datetime DATETIME NOT NULL,
-           end_datetime DATETIME NOT NULL);
-	`
-	var err error
-	_, err = db.Exec(createSQL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Create index
-	insertSQL := `
-	CREATE UNIQUE INDEX IF NOT EXISTS unique_class ON timetable(gym, location, start_datetime);
-`
-	_, err = db.Exec(insertSQL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func persistClassToDB(class GymClass) bool {
 	// Prepare insert query
 	stmt, err := db.Prepare("INSERT OR IGNORE INTO timetable (gym, class, location, start_datetime, end_datetime) values(?, ?, ?, ?, ?)")
 	if err != nil {
-		log.Fatal(err)
+		return false
 	}
 
 	_, err = stmt.Exec(class.Gym, class.Name, class.Location, class.StartDateTime, class.EndDateTime)
 	if err != nil {
-		log.Fatal(err)
+		return false
 	}
-
-	return
+	return true
 }
