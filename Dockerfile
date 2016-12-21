@@ -1,13 +1,3 @@
-FROM alpine:latest
+FROM golang:1.7-onbuild
 
-
-RUN apk add --no-cache g++
-ADD go_gymsearch /go_gymsearch
-ADD ui /ui
-
-
-CMD ["/go_gymsearch"]
-
-
-
-
+EXPOSE 9000
