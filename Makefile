@@ -1,20 +1,25 @@
-ARTIFACT = go_gymsearch 
+ARTIFACT = gymsearch 
 
 all: build
 
 build: GOOS ?= darwin
 build: GOARCH ?= amd64
 build: clean
-		GOOS=${GOOS} GOARCH=${GOARCH} go build -o ${ARTIFACT} -a .
+	cp -r ~/Code/gym_frontend/build/ ui/build/
+	GOOS=${GOOS} GOARCH=${GOARCH} CGO_ENABLED=0 go build -o ${ARTIFACT} -a .
 
 clean:
-		rm -f ${ARTIFACT}
+	rm -rf ${ARTIFACT}
 
 image: clean
-		GOOS=linux GOARCH=amd64 go build -o ${ARTIFACT} -a .
+	cp -r ~/Code/gym_frontend/build/ ui/build/
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o ${ARTIFACT} -a .
+push:
+	docker build --no-cache -t ryankscott/go_gymsearch .
+	docker push ryankscott/go_gymsearch
 
 test:
-		go test -v
+	go test -v
 
 run: build
-	/${ARTIFACT}
+	./${ARTIFACT}
