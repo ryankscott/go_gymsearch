@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"time"
-
-	mailgun "gopkg.in/mailgun/mailgun-go.v1"
 
 	"log"
 	"net/http"
@@ -21,50 +17,6 @@ import (
 )
 
 var config *gym.Config
-
-func sendEmail(us []gym.User) error {
-	mg := mailgun.NewMailgun("ryankscott.com", "key-39491ebd7a69f1daeefd3c20ac48cb07", "pubkey-62227b10c2d201bb4e635150be69e97b")
-	t, err := template.ParseFiles("template.html")
-	if err != nil {
-		log.Printf("Failed to parse template for email with error %s", err)
-		return err
-	}
-
-	log.Printf("Preparing to send %d emails\n", len(us))
-	for _, u := range us {
-		pref, err := gym.QueryUserPreferences(u.ID, config)
-		if err != nil {
-			log.Printf("Failed to get preferences for user %s", err)
-		}
-
-		data := struct {
-			Name string
-		}{
-			Name: u.FirstName,
-		}
-		var out bytes.Buffer
-		err = t.Execute(&out, data)
-		if err != nil {
-			log.Printf("Failed to execute template - %s\n", err)
-			return err
-		}
-
-		log.Printf("Sending email to %s\n", u.Email)
-		message := mailgun.NewMessage(
-			"reminders@ryankscott.com",
-			"Don't forget to workout today",
-			"Don't forget to workout today",
-			u.Email)
-		message.SetHtml(out.String())
-
-		resp, _, err := mg.Send(message)
-		if err != nil {
-			log.Printf("Failed to send message with resp - %s and err - %s\n", resp, err)
-			return err
-		}
-	}
-	return nil
-}
 
 func getUsersWithoutClasses(config *gym.Config) ([]gym.User, error) {
 	ty, tm, td := time.Now().Date()
@@ -110,19 +62,8 @@ func main() {
 	if err != nil {
 		log.Fatal("Unable to get gym configuration")
 	}
-	// Get and save all classes
-	getAndStoreClasses(config)
-	us, err := getUsersWithoutClasses(config)
-	if err != nil {
-		log.Printf("Failed to get any users without classes: %s\n", err)
-	} else {
-		err := sendEmail(us)
-		if err != nil {
-
-			log.Printf("Failed to send email to users: %s\n", err)
-		}
-	}
 	// Set up cron jobs
+	getAndStoreClasses(config)
 	c := cron.New()
 	c.AddFunc("0 0 13 * * *", func() { fmt.Println("at 1pm") })
 	c.AddFunc("0 0 5 * * *", func() { getAndStoreClasses(config) })
@@ -181,12 +122,10 @@ A4/HuY66mTvvFPnGV/Q1YQaQ7pvwOm3YoqIzxBbv0MaOhS14rJGN1m8w
 // PreferredClasses returns the preferred classes for a user
 var PreferredClasses = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	switch r.Method {
 
@@ -235,12 +174,10 @@ var PreferredClasses = http.HandlerFunc(func(w http.ResponseWriter, r *http.Requ
 
 // Statistics returns the statistics about a user
 var Statistics = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	switch r.Method {
 
@@ -283,12 +220,10 @@ var Statistics = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 // Preferences returns the preferences a user has for particular classes
 var Preferences = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	switch r.Method {
 
@@ -331,12 +266,10 @@ var Preferences = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) 
 // Search returns the classes based on a parsed query in natural english
 var Search = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	var params = r.URL.Query()
 	query := params.Get("q")
@@ -359,26 +292,31 @@ var Search = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Unable to parse gymclasses: %s", err)
 		return
 	}
-	classes, err := json.Marshal(c)
+
+	type queryResult struct {
+		Query   gym.GymQuery   `json:"query"`
+		Classes gym.GymClasses `json:"classes"`
+	}
+	qr := queryResult{Query: q, Classes: c}
+
+	result, err := json.Marshal(qr)
 	if err != nil {
 		w.WriteHeader(500)
 		fmt.Fprintf(w, "Internal server error")
 		log.Printf("Unable to parse gymclasses: %s", err)
 	}
 	w.WriteHeader(200)
-	fmt.Fprintf(w, string(classes))
+	fmt.Fprintf(w, string(result))
 	return
 
 })
 
 // Classes returns the classes a user has saved from the data store
 var Classes = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	switch r.Method {
 
@@ -478,12 +416,10 @@ var Classes = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 // Slack receives a request and forwards it to a Slack webhook URL
 var Slack = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	switch r.Method {
 
 	case "OPTIONS":
@@ -512,12 +448,10 @@ var Slack = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 // Users returns the statistics about a user
 var Users = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, authorization")
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	switch r.Method {
 
